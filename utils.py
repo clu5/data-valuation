@@ -394,7 +394,6 @@ def compute_robust_volumes(X_tildes, dcube_collections):
     for i, (volume, hypercubes) in enumerate(zip(volumes, dcube_collections)):
         rho_omega_prod = 1.0
         for cube_index, freq_count in hypercubes.items():
-            
             # if freq_count == 1: continue # volume does not monotonically increase with omega
             # commenting this if will result in volume monotonically increasing with omega
             rho_omega = (1 - alpha**(freq_count + 1)) / (1 - alpha)
@@ -405,7 +404,6 @@ def compute_robust_volumes(X_tildes, dcube_collections):
     return robust_volumes
 
 def get_volume(cov, omega=0.1):
-    
     X_tilde, cubes = compute_X_tilde_and_counts(cov, omega=omega)
     vol = compute_robust_volumes([X_tilde], [cubes])
     return vol[0]
@@ -437,7 +435,6 @@ def fit_buyer(buyer_features, n_components=2, svd_solver='randomized', whiten=Tr
     pca.fit(X_b)
     buyer_values = pca.explained_variance_  # eigenvalues
     buyer_components = pca.components_  # eigenvectors
-    
     return pca, buyer_cov, buyer_values, buyer_components
 
 
@@ -454,3 +451,14 @@ def get_valuation(buyer_values, buyer_components, seller_cov, proj_seller_cov, t
     vol = get_volume(proj_seller_cov, omega=omega)
     return rel, div, vol
     
+    
+def get_relevance(buyer_pca, seller_data, threshold=1e-2):
+    # buyer_vecs = buyer_eig_vecs[:n_components]
+    buyer_vals = buyer_pca.explained_variance_
+    # seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
+    seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
+    # seller_vals = np.linalg.norm(seller_cov @ buyer_pca.components_.T, axis=0)
+    rel_components = np.minimum(buyer_vals, seller_vals) / np.maximum(buyer_vals, seller_vals)
+    keep_mask = buyer_vals >= threshold
+    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
+    return rel

@@ -1,4 +1,5 @@
 models/*
 .mypy_cache/*
 .ipynb_checkpoints/*
-
+.*.png
+.*.pdf
