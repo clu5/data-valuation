@@ -9,6 +9,8 @@ import pandas as pd
 import torch
 from PIL import Image
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import Normalizer
+from sklearn.cluster import KMeans
 from torch.utils.data import (ConcatDataset, DataLoader, Dataset, Subset,
                               WeightedRandomSampler)
 from torchvision import models, transforms
@@ -36,6 +38,12 @@ def compute_volume(cov, epsilon=1e-8):
 
 
 def compute_volumes(datasets, d=1):
+    volumes = np.zeros(len(datasets))
+    for i, dataset in enumerate(datasets):
+        volumes[i] = np.sqrt(np.linalg.det(dataset.T @ dataset) + 1e-8)
+    return volumes
+
+def compute_projected_volumes(datasets, projection, d=1):
     volumes = np.zeros(len(datasets))
     for i, dataset in enumerate(datasets):
         volumes[i] = np.sqrt(np.linalg.det(dataset.T @ dataset) + 1e-8)
@@ -124,18 +132,19 @@ def compute_robust_volumes(X_tildes, dcube_collections):
     return robust_volumes
 
 
-def get_volume(cov, omega=0.1):
+def get_volume(X, omega=0.1, norm=False):
     """
     From https://github.com/ZhaoxuanWu/VolumeBased-DataValuation/blob/main/volume.py
     """
-
-    X_tilde, cubes = compute_X_tilde_and_counts(cov, omega=omega)
+    if norm:
+        X = Normalizer(norm='l2').fit_transform(X)
+    X_tilde, cubes = compute_X_tilde_and_counts(X, omega=omega)
     vol = compute_robust_volumes([X_tilde], [cubes])
     return vol[0]
 
 
 def div_rel_func(
-    buyer_eig_vals, buyer_eig_vecs, seller_cov, threshold=1e-2, n_components=2
+    buyer_eig_vals, buyer_eig_vecs, seller_cov, threshold=1e-2, n_components=2,
 ):
     buyer_vals = buyer_eig_vals[:n_components]
     # buyer_vecs = buyer_eig_vecs[:, :n_components]
@@ -216,7 +225,8 @@ def get_valuation(
 
 def get_relevance(buyer_pca, seller_data, threshold=1e-2):
     buyer_vals = buyer_pca.explained_variance_
-    seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
+    # seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
+    seller_vals = np.linalg.norm(buyer_pca.transform(np.cov(seller_data, rowvar=False)), axis=0)
 
     # alternative implmentation TODO: cleanup or delete
     # buyer_vecs = buyer_eig_vecs[:n_components]
@@ -229,3 +239,37 @@ def get_relevance(buyer_pca, seller_data, threshold=1e-2):
     keep_mask = buyer_vals >= threshold
     rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
     return rel
+
+
+def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_components=25):
+    if k_means is None:
+        k_means = KMeans(n_clusters=n_clusters, n_init='auto')
+        k_means.fit(buyer_data)
+    buyer_clusters = {k: buyer_data[k_means.predict(buyer_data) == k] for k in range(n_clusters)}
+    seller_clusters = {k: seller_data[k_means.predict(seller_data) == k] for k in range(n_clusters)}
+    cluster_rel = {}
+    cluster_vol = {}
+    # for j in tqdm(range(n_clusters)):
+    for j in range(n_clusters):
+        cluster_pca = PCA(n_components=n_components, svd_solver='randomized', whiten=False)
+        cluster_pca.fit(buyer_clusters[j])
+        ws = []
+        rs = []
+        vs = []
+        for i in range(n_clusters):
+            if seller_clusters[i].shape[0] == 0 or seller_clusters[i].shape[0] == 1:
+                ws.append(0)
+                rs.append(0)
+                vs.append(0)
+            else:
+                ws.append(seller_clusters[i].shape[0] / seller_data.shape[0])
+                rs.append(valuation.get_relevance(cluster_pca, seller_clusters[i]))
+                # vs.append(valuation.get_volume(np.cov(cluster_pca.transform(seller_clusters[i]).T)))
+                vs.append(valuation.get_volume(cluster_pca.transform(seller_clusters[i])))
+        cluster_rel[j] = np.average(rs, weights=ws)
+        cluster_vol[j] = np.average(vs, weights=ws)
+    buyer_weights = [v.shape[0] / buyer_data.shape[0] for v in buyer_clusters.values()]
+    # print(buyer_weights)
+    rel = np.average(list(cluster_rel.values()), weights=buyer_weights)
+    vol = np.average(list(cluster_vol.values()), weights=buyer_weights)
+    return rel, vol
