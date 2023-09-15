@@ -185,7 +185,7 @@ def main(args):
         with open(results_dir / 'valuations.json', 'w') as f:
             json.dump(dict(valuations), f, indent=4)
     for buyer, results in valuations.items():
-        plt.figure(figsize=(6, 6))
+        plt.figure(figsize=(8, 5))
         plt.xlabel('Relvance', fontsize=20)
         plt.ylabel('Diversity', fontsize=20)
         plt.xlim(0, 1.1)
@@ -193,10 +193,11 @@ def main(args):
         plt.title(f'Buyer: {buyer}', fontsize=20, pad=12)
         for seller, value in results.items():
             plt.scatter(value['relevance'], value['diversity'], s=300, marker='o', label=seller)
-        plt.legend(fontsize=20, bbox_to_anchor=(1.7, 1))
+        plt.legend(fontsize=20, bbox_to_anchor=(1.5, 1))
         if not args.debug:
             plt.savefig(results_dir / f'{buyer}-valuation.png', bbox_inches='tight')
     print('finished plots'.center(40, '-'))
+    return
     performances = defaultdict(dict)
     for buyer, v in tqdm(datasets.items()):
         for seller, w in tqdm(datasets.items()):

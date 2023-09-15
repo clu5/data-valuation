@@ -1,5 +1,9 @@
+*.png
+*.pdf
 models/*
+results/*
+figures/*
+__pycache__/*
+.python-version
 .mypy_cache/*
 .ipynb_checkpoints/*
-.*.png
-.*.pdf
