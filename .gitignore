@@ -3,6 +3,7 @@
 models/*
 results/*
 figures/*
+old-figures/*
 __pycache__/*
 .python-version
 .mypy_cache/*
