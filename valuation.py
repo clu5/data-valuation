@@ -3,6 +3,7 @@ Main implmentation for diversity and relevance measures for data valuation
 """
 import collections
 import math
+import time
 
 import numpy as np
 import pandas as pd
@@ -136,8 +137,6 @@ def get_volume(X, omega=0.1, norm=False):
     """
     From https://github.com/ZhaoxuanWu/VolumeBased-DataValuation/blob/main/volume.py
     """
-    if norm:
-        X = Normalizer(norm='l2').fit_transform(X)
     X_tilde, cubes = compute_X_tilde_and_counts(X, omega=omega)
     vol = compute_robust_volumes([X_tilde], [cubes])
     return vol[0]
@@ -273,3 +272,51 @@ def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_co
     rel = np.average(list(cluster_rel.values()), weights=buyer_weights)
     vol = np.average(list(cluster_vol.values()), weights=buyer_weights)
     return rel, vol
+
+
+def get_value(
+    buyer_data, seller_data, pca=None, threshold=0.1, n_components=10, 
+    verbose=False, norm_volume=True, omega=0.1, dtype = np.float32,
+):
+    start_time = time.perf_counter()
+    buyer_data = np.array(buyer_data, dtype=dtype)
+    seller_data = np.array(seller_data, dtype=dtype)
+    seller_cov = np.cov(seller_data, rowvar=False)
+    buyer_cov = np.cov(buyer_data, rowvar=False)
+    buyer_val, buyer_vec = np.linalg.eig(buyer_cov)
+    order = np.argsort(buyer_val)[::-1]
+    sorted_buyer_val = buyer_val[order]
+    sorted_buyer_vec = buyer_vec[:, order]
+    buyer_values = sorted_buyer_val.real[:n_components]
+    buyer_components = sorted_buyer_vec.real[:, :n_components]
+    if verbose:
+        print(buyer_components.shape)
+    if pca is not None:
+        pca.mean_ = None
+        seller_values = np.linalg.norm(pca.transform(np.cov(seller_data, rowvar=False)), axis=0)
+    else:
+        seller_values = np.linalg.norm(seller_cov @ buyer_components, axis=0)
+    if verbose:
+        print(seller_values.shape)
+        
+    # only include directions with value above this threshold
+    if verbose: print(f'{seller_values=}')
+    keep_mask = buyer_values >= threshold
+    if verbose: print(f'{keep_mask.nonzero()[0].shape[0]=}')
+    C = np.maximum(buyer_values, seller_values)  
+    div_components = np.abs(buyer_values - seller_values) / C
+    rel_components = np.minimum(buyer_values, seller_values) / C
+    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / keep_mask.sum())
+    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
+    if verbose:
+        print(np.prod(seller_values))
+
+    if norm_volume:
+        Norm = Normalizer(norm='l2')
+        seller_data = Norm.fit_transform(seller_data)
+    vol = get_volume(seller_data @ buyer_components, omega=omega)
+        
+    end_time = time.perf_counter()
+    if verbose:
+        print('time', end_time - start_time)
+    return dict(diversity=div, relevance=rel, volume=vol)
