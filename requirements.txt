@@ -6,5 +6,4 @@ matplotlib
 Pillow
 pandas
 tqdm
-opendataval
 git+https://github.com/openai/CLIP.git
