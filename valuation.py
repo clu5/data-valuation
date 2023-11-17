@@ -4,6 +4,7 @@ Main implmentation for diversity and relevance measures for data valuation
 import collections
 import math
 import time
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,20 +24,18 @@ def covariance(X, normalize=True):
     """
     if normalize:
         X = X - X.mean(0)
-    norm = 1 / X.shape[0]
-    cov = X.T @ X
-    return norm * cov
-
+    n = X.shape[0]
+    norm = (n - 1)
+    gram = np.dot(X.T, X)
+    return gram / norm
 
 def svd(covariance_matrix):
     eig_val, eig_vec = np.linalg.eig(covariance_matrix)
     eig_val = eig_val.real
     return eig_val, eig_vec
 
-
 def compute_volume(cov, epsilon=1e-8):
     return np.sqrt(np.linalg.det(cov) + epsilon)
-
 
 def compute_volumes(datasets, d=1):
     volumes = np.zeros(len(datasets))
@@ -51,86 +50,51 @@ def compute_projected_volumes(datasets, projection, d=1):
     return volumes
 
 
-def compute_X_tilde_and_counts(X, omega=0.1):
+def compute_X_tilde_and_counts(X: torch.Tensor, omega: float = 0.1) -> Tuple[np.ndarray, Dict]:
     """
-    From https://github.com/ZhaoxuanWu/VolumeBased-DataValuation/blob/main/volume.py
+    https://github.com/opendataval/opendataval/blob/main/opendataval/dataval/volume/rvs.py
 
     Compresses the original feature matrix X to  X_tilde with the specified omega.
 
-    Returns:
-       X_tilde: compressed np.ndarray
+    Returns
+    -------
+    np.ndarray
+       compressed form of X as a d-cube 
+    dict[tuple, int]
        cubes: a dictionary of cubes with the respective counts in each dcube
     """
-    X = torch.tensor(X)
+    assert 0 < omega <= 1, "omega must be within range [0,1]."
 
-    D = X.shape[1]
-
-    # assert 0 < omega <= 1, "omega must be within range [0,1]."
-
-    m = math.ceil(1.0 / omega)  # number of intervals for each dimension
-
-    cubes = collections.Counter()  # a dictionary to store the freqs
-    # key: (1,1,..)  a d-dimensional tuple, each entry between [0, m-1]
-    # value: counts
-
-    Omega = collections.defaultdict(list)
-    # Omega = {}
-
-    min_ds = torch.min(X, axis=0).values
+    # Dictionary to store frequency for each cube
+    cubes = collections.Counter()
+    omega_dict = collections.defaultdict(list)
+    min_ds = np.min(X, axis=0)
 
     # a dictionary to store cubes of not full size
-    for x in X:
-        cube = []
-        for d, xd in enumerate(x - min_ds):
-            d_index = math.floor(xd / omega)
-            cube.append(d_index)
-
-        cube_key = tuple(cube)
+    for entry in X:
+        cube_key = tuple(math.floor(ent.item() / omega) for ent in entry - min_ds)
         cubes[cube_key] += 1
+        omega_dict[cube_key].append(entry)
 
-        Omega[cube_key].append(x)
-
-        """
-        if cube_key in Omega:
-
-            # Implementing mean() to compute the average of all rows which fall in the cube
-
-            Omega[cube_key] = Omega[cube_key] * (1 - 1.0 / cubes[cube_key]) + 1.0 / cubes[cube_key] * x
-            # Omega[cube_key].append(x)
-        else:
-             Omega[cube_key] = x
-        """
-    X_tilde = torch.stack(
-        [torch.stack(list(value)).mean(axis=0) for key, value in Omega.items()]
-    )
-
-    # X_tilde = stack(list(Omega.values()))
-
+    X_tilde = np.stack([np.mean(value, axis=0) for value in omega_dict.values()])
     return X_tilde, cubes
 
 
-def compute_robust_volumes(X_tildes, dcube_collections):
+def compute_robust_volumes(X_tilde: np.ndarray, hypercubes: dict[tuple, int]):
+
     """
-    From https://github.com/ZhaoxuanWu/VolumeBased-DataValuation/blob/main/volume.py
+    https://github.com/opendataval/opendataval/blob/main/opendataval/dataval/volume/rvs.py
     """
-    N = sum([len(X_tilde) for X_tilde in X_tildes])
-    alpha = 1.0 / (10 * N)  # it means we set beta = 10
-    # print("alpha is :{}, and (1 + alpha) is :{}".format(alpha, 1 + alpha))
+    alpha = 1.0 / (10 * len(X_tilde))  # it means we set beta = 10
 
-    # volumes, volume_all = compute_volumes(X_tildes, d=X_tildes[0].shape[1])
-    volumes = compute_volumes(X_tildes, d=X_tildes[0].shape[1])
-    robust_volumes = np.zeros_like(volumes)
-    for i, (volume, hypercubes) in enumerate(zip(volumes, dcube_collections)):
-        rho_omega_prod = 1.0
-        for cube_index, freq_count in hypercubes.items():
-            # if freq_count == 1: continue # volume does not monotonically increase with omega
-            # commenting this if will result in volume monotonically increasing with omega
-            rho_omega = (1 - alpha ** (freq_count + 1)) / (1 - alpha)
+    flat_data = X_tilde.reshape(-1, X_tilde.shape[1])
+    (sign, volume) = np.linalg.slogdet(np.dot(flat_data.T, flat_data))
+    robustness_factor = 1.0
 
-            rho_omega_prod *= rho_omega
+    for freq_count in hypercubes.values():
+        robustness_factor *= (1 - alpha ** (freq_count + 1)) / (1 - alpha)
 
-        robust_volumes[i] = (volume * rho_omega_prod).round(3)
-    return robust_volumes
+    return sign, volume, robustness_factor
 
 
 def get_volume(X, omega=0.1, norm=False):
@@ -138,106 +102,9 @@ def get_volume(X, omega=0.1, norm=False):
     From https://github.com/ZhaoxuanWu/VolumeBased-DataValuation/blob/main/volume.py
     """
     X_tilde, cubes = compute_X_tilde_and_counts(X, omega=omega)
-    vol = compute_robust_volumes([X_tilde], [cubes])
-    return vol[0]
-
-
-def div_rel_func(
-    buyer_eig_vals, buyer_eig_vecs, seller_cov, threshold=1e-2, n_components=2,
-):
-    buyer_vals = buyer_eig_vals[:n_components]
-    # buyer_vecs = buyer_eig_vecs[:, :n_components]
-    buyer_vecs = buyer_eig_vecs[:n_components]
-    seller_vals = np.linalg.norm(seller_cov @ buyer_vecs.T, axis=0)
-
-    # Diversity based on difference of values
-    div_components = np.abs(buyer_vals - seller_vals) / np.maximum(
-        buyer_vals, seller_vals
-    )
-
-    #  Relevance
-    rel_components = np.minimum(buyer_vals, seller_vals) / np.maximum(
-        buyer_vals, seller_vals
-    )
-
-    # only include directions with value above this threshold
-    keep_mask = buyer_vals >= threshold
-
-    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / keep_mask.sum())
-    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
-    return rel, div  # , keep_mask.sum()
-
-
-def fit_buyer(buyer_features, n_components=2, svd_solver="randomized", whiten=True):
-    """
-    Compute PCA for buyer's data
-    """
-    X_b = buyer_features.float()
-    X_b -= X_b.mean(0)
-    buyer_cov = np.cov(X_b, rowvar=False)
-    pca = PCA(n_components=n_components, svd_solver=svd_solver, whiten=whiten)
-    pca.fit(X_b)
-    buyer_values = pca.explained_variance_  # eigenvalues
-    buyer_components = pca.components_  # eigenvectors
-    return pca, buyer_cov, buyer_values, buyer_components
-
-
-def project_seller(seller_features, buyer_pca):
-    """
-    Projects seller's data onto buyer's principal components
-    """
-    X_s = np.array(seller_features)
-    X_s -= X_s.mean(0)
-    seller_cov = np.cov(X_s, rowvar=False)
-    proj_seller_cov = buyer_pca.transform(seller_cov)
-    return seller_cov, proj_seller_cov
-
-
-def get_valuation(
-    buyer_values,
-    buyer_components,
-    seller_cov,
-    proj_seller_cov,
-    threshold=0.1,
-    n_components=2,
-    omega=0.3,
-):
-    """
-        buyer_values: buyer's eigenvalues from PCA
-        buyer_components: buyer's principal components
-        seller_cov: seller's covariance matrix
-        proj_seller_cov: seller's covariance matrix projected onto buyer's components
-        threshold: only include values in valuation computation above this threshold
-        n_components: number of principal components to consider
-        omega: parameter in [0, 1] for volume-based diversity that controls duplication robustness
-    """
-    rel, div = div_rel_func(
-        buyer_values,
-        buyer_components,
-        seller_cov,
-        threshold=threshold,
-        n_components=n_components,
-    )
-    vol = get_volume(proj_seller_cov, omega=omega)
-    return rel, div, vol
-
-
-def get_relevance(buyer_pca, seller_data, threshold=1e-2):
-    buyer_vals = buyer_pca.explained_variance_
-    # seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
-    seller_vals = np.linalg.norm(buyer_pca.transform(np.cov(seller_data, rowvar=False)), axis=0)
-
-    # alternative implmentation TODO: cleanup or delete
-    # buyer_vecs = buyer_eig_vecs[:n_components]
-    # seller_vals = np.linalg.norm(np.cov(buyer_pca.transform(seller_data).T), axis=0)
-    # seller_vals = np.linalg.norm(seller_cov @ buyer_pca.components_.T, axis=0)
-
-    rel_components = np.minimum(buyer_vals, seller_vals) / np.maximum(
-        buyer_vals, seller_vals
-    )
-    keep_mask = buyer_vals >= threshold
-    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
-    return rel
+    sign, vol, robustness_factor = compute_robust_volumes(X_tilde, cubes)
+    robust_vol = robustness_factor * vol
+    return dict(robust_vol=robust_vol, sign=sign, vol=vol, robustness_factor=robustness_factor) 
 
 
 def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_components=25):
@@ -275,8 +142,10 @@ def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_co
 
 
 def get_value(
-    buyer_data, seller_data, pca=None, threshold=0.1, n_components=10, 
+    buyer_data, seller_data, threshold=0.1, n_components=10, 
     verbose=False, norm_volume=True, omega=0.1, dtype = np.float32,
+    only_return_vol = True, decomp=None, decomp_kwargs={},
+    use_smallest_components = False,
 ):
     start_time = time.perf_counter()
     buyer_data = np.array(buyer_data, dtype=dtype)
@@ -287,34 +156,52 @@ def get_value(
     order = np.argsort(buyer_val)[::-1]
     sorted_buyer_val = buyer_val[order]
     sorted_buyer_vec = buyer_vec[:, order]
-    buyer_values = sorted_buyer_val.real[:n_components]
-    buyer_components = sorted_buyer_vec.real[:, :n_components]
+    if use_smallest_components:
+        slice_index = np.s_[-n_components:]
+    else:
+        slice_index = np.s_[:n_components]
+    
+    buyer_values = sorted_buyer_val.real[slice_index]
+    buyer_components = sorted_buyer_vec.real[:, slice_index]
     if verbose:
+        print(f'{slice_index=}')
+        print(f'{buyer_values=}')
         print(buyer_components.shape)
-    if pca is not None:
-        pca.mean_ = None
-        seller_values = np.linalg.norm(pca.transform(np.cov(seller_data, rowvar=False)), axis=0)
+    if decomp is not None:
+        D = decomp(**decomp_kwargs)
+        # D = decomp(n_components=n_components, **decomp_kwargs)
+        D.fit(buyer_data)
+        D.mean_ = np.zeros(seller_data.shape[1]) # dummy mean 
+        seller_values = np.linalg.norm(D.transform(seller_cov), axis=0)
     else:
         seller_values = np.linalg.norm(seller_cov @ buyer_components, axis=0)
     if verbose:
         print(seller_values.shape)
+        print(f'{seller_values=}')
         
     # only include directions with value above this threshold
-    if verbose: print(f'{seller_values=}')
     keep_mask = buyer_values >= threshold
-    if verbose: print(f'{keep_mask.nonzero()[0].shape[0]=}')
+    
+    if verbose: 
+        print(f'{keep_mask.nonzero()[0].shape[0]=}')
+        
     C = np.maximum(buyer_values, seller_values)  
     div_components = np.abs(buyer_values - seller_values) / C
     rel_components = np.minimum(buyer_values, seller_values) / C
-    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / keep_mask.sum())
-    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / keep_mask.sum())
+    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / max(1, keep_mask.sum()))
+    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / max(1, keep_mask.sum()))
     if verbose:
         print(np.prod(seller_values))
 
     if norm_volume:
         Norm = Normalizer(norm='l2')
         seller_data = Norm.fit_transform(seller_data)
-    vol = get_volume(seller_data @ buyer_components, omega=omega)
+    if decomp is not None:
+        vol = get_volume(D.transform(seller_data), omega=omega)
+    else:
+        vol = get_volume(seller_data @ buyer_components, omega=omega)
+    if only_return_vol:
+        vol = vol['robust_vol']
         
     end_time = time.perf_counter()
     if verbose:
