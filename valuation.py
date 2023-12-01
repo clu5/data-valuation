@@ -6,6 +6,7 @@ import math
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from vendi_score import vendi
 import numpy as np
 import pandas as pd
 import torch
@@ -146,6 +147,7 @@ def get_value(
     verbose=False, norm_volume=True, omega=0.1, dtype = np.float32,
     only_return_vol = True, decomp=None, decomp_kwargs={},
     use_smallest_components = False,
+    include_vendi_score = False,
 ):
     start_time = time.perf_counter()
     buyer_data = np.array(buyer_data, dtype=dtype)
@@ -202,8 +204,14 @@ def get_value(
         vol = get_volume(seller_data @ buyer_components, omega=omega)
     if only_return_vol:
         vol = vol['robust_vol']
+
+    if include_vendi_score:
+        if decomp is not None:
+            vs = vendi.score_dual(D.transform(seller_data), normalize=True)
+        else:
+            vs = vendi.score_dual(seller_data, normalize=True)
         
     end_time = time.perf_counter()
     if verbose:
         print('time', end_time - start_time)
-    return dict(diversity=div, relevance=rel, volume=vol)
+    return dict(diversity=div, relevance=rel, volume=vol, vendi=vs)

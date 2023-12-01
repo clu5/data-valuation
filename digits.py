@@ -123,7 +123,8 @@ def embed(data):
 
 def get_valuation(buyer_pca, seller):
     rel = valuation.get_relevance(buyer_pca, seller)
-    vol = valuation.get_volume(np.cov(buyer_pca.transform(seller).T))
+    # vol = valuation.get_volume(np.cov(buyer_pca.transform(seller).T))
+    vol = valuation.get_volume(buyer_pca.transform(seller).T)
     return rel, max(vol, 1e-5)
 
 
