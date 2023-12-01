@@ -5,6 +5,7 @@ import collections
 import math
 import time
 from typing import Dict, List, Optional, Sequence, Tuple
+from scipy.linalg import cosm
 
 from vendi_score import vendi
 import numpy as np
@@ -210,8 +211,14 @@ def get_value(
             vs = vendi.score_dual(D.transform(seller_data), normalize=True)
         else:
             vs = vendi.score_dual(seller_data, normalize=True)
-        
+
+    # Compute the cosine similarity and L2 Distance
+    buyer_mean = np.mean(buyer_cov, axis=0)
+    seller_mean = np.mean(seller_cov, axis=0)
+    cos = np.dot(buyer_mean, seller_mean) / (np.linalg.norm(buyer_mean) * np.linalg.norm(seller_mean))
+    l2 = - np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
+
     end_time = time.perf_counter()
     if verbose:
         print('time', end_time - start_time)
-    return dict(diversity=div, relevance=rel, volume=vol, vendi=vs)
+    return dict(cosine=cos, diversity=div, l2=l2, relevance=rel, volume=vol, vendi=vs)
