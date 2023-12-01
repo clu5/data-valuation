@@ -7,3 +7,6 @@ Pillow
 pandas
 tqdm
 git+https://github.com/openai/CLIP.git
+medmnist
+jupyterlab_vim
+vendi_score
