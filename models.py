@@ -3,6 +3,17 @@ import torch
 import torch.nn as nn
 
 
+class embedding_model(torch.nn.Module):
+    def __init__(
+        self,
+        model='clip',
+    ):
+        pass
+        
+    def forward(self):
+        pass
+
+
 def iteration(model, loader, optimizer, criterion, classification=False, train=True):
     total_loss = 0
     model.train() if train else model.eval()

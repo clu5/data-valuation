@@ -12,3 +12,4 @@ jupyterlab_vim
 vendi_score
 chromadb
 langchain
+nbdime

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
+from scipy.stats import gmean
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import Normalizer
 from sklearn.cluster import KMeans
@@ -146,9 +147,9 @@ def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_co
 def get_value(
     buyer_data, seller_data, threshold=0.1, n_components=10, 
     verbose=False, norm_volume=True, omega=0.1, dtype = np.float32,
-    only_return_vol = True, decomp=None, decomp_kwargs={},
+    decomp=None, decomp_kwargs={},
     use_smallest_components = False,
-    include_vendi_score = False,
+    use_rbf_kernel=False,
 ):
     start_time = time.perf_counter()
     buyer_data = np.array(buyer_data, dtype=dtype)
@@ -166,51 +167,47 @@ def get_value(
     
     buyer_values = sorted_buyer_val.real[slice_index]
     buyer_components = sorted_buyer_vec.real[:, slice_index]
-    if verbose:
-        print(f'{slice_index=}')
-        print(f'{buyer_values=}')
-        print(buyer_components.shape)
+        
     if decomp is not None:
-        D = decomp(**decomp_kwargs)
-        # D = decomp(n_components=n_components, **decomp_kwargs)
-        D.fit(buyer_data)
-        D.mean_ = np.zeros(seller_data.shape[1]) # dummy mean 
-        seller_values = np.linalg.norm(D.transform(seller_cov), axis=0)
+        Decomp = decomp(n_components=n_components, **decomp_kwargs)
+        Decomp.fit(buyer_data)
+        Decomp.mean_ = np.zeros(seller_data.shape[1]) # dummy mean 
+        seller_values = np.linalg.norm(Decomp.transform(seller_cov), axis=0)
     else:
         seller_values = np.linalg.norm(seller_cov @ buyer_components, axis=0)
-    if verbose:
-        print(seller_values.shape)
-        print(f'{seller_values=}')
         
     # only include directions with value above this threshold
     keep_mask = buyer_values >= threshold
     
-    if verbose: 
-        print(f'{keep_mask.nonzero()[0].shape[0]=}')
-        
     C = np.maximum(buyer_values, seller_values)  
     div_components = np.abs(buyer_values - seller_values) / C
     rel_components = np.minimum(buyer_values, seller_values) / C
     div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / max(1, keep_mask.sum()))
     rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / max(1, keep_mask.sum()))
-    if verbose:
-        print(np.prod(seller_values))
 
+    M, D = seller_data.shape
+
+    if decomp is not None:
+        # project seller data onto buyer's components
+        X_sell = Decomp.transform(seller_data)
+    else:
+        X_sell = seller_data.copy()
+
+    # Dispersion based diversity https://arxiv.org/abs/2003.08529
+    dis = gmean(np.std(X_sell, axis=0))
+        
+    # Entropy based diversity https://arxiv.org/abs/2210.02410
+    if use_rbf_kernel:
+        K = lambda a, b: np.exp(-np.linalg.norm(a - b))
+        vs = vendi.score(X_sell, K, normalize=True)
+    else:
+        vs = vendi.score_dual(X_sell, normalize=True)
+
+    # Volume based diversity https://proceedings.neurips.cc/paper/2021/file/59a3adea76fadcb6dd9e54c96fc155d1-Paper.pdf
     if norm_volume:
         Norm = Normalizer(norm='l2')
-        seller_data = Norm.fit_transform(seller_data)
-    if decomp is not None:
-        vol = get_volume(D.transform(seller_data), omega=omega)
-    else:
-        vol = get_volume(seller_data @ buyer_components, omega=omega)
-    if only_return_vol:
-        vol = vol['robust_vol']
-
-    if include_vendi_score:
-        if decomp is not None:
-            vs = vendi.score_dual(D.transform(seller_data), normalize=True)
-        else:
-            vs = vendi.score_dual(seller_data, normalize=True)
+        X_sell = Norm.fit_transform(X_sell)
+    vol = get_volume(X_sell, omega=omega)['robust_vol']
 
     # Compute the cosine similarity and L2 Distance
     buyer_mean = np.mean(buyer_cov, axis=0)
@@ -219,6 +216,15 @@ def get_value(
     l2 = - np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
 
     end_time = time.perf_counter()
+    
     if verbose:
+        print(f'{slice_index=}')
+        print(f'{buyer_values=}')
+        print(buyer_components.shape)
+        print(seller_values.shape)
+        print(f'{seller_values=}')
+        print(f'{keep_mask.nonzero()[0].shape[0]=}')
+        print(np.prod(seller_values))
         print('time', end_time - start_time)
-    return dict(cosine=cos, diversity=div, l2=l2, relevance=rel, volume=vol, vendi=vs)
+        
+    return dict(relevance=rel, l2=l2, cosine=cos, diversity=div, volume=vol, vendi=vs, dispersion=dis)
