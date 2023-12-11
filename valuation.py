@@ -143,13 +143,27 @@ def cluster_valuation(buyer_data, seller_data, k_means=None, n_clusters=10, n_co
     vol = np.average(list(cluster_vol.values()), weights=buyer_weights)
     return rel, vol
 
+def compute_eigen_rel_div(buyer_values, seller_values, threshold=0.1):
+    # only include directions with value above this threshold
+    keep_mask = buyer_values >= threshold
+    
+    C = np.maximum(buyer_values, seller_values)  
+    div_components = np.abs(buyer_values - seller_values) / C
+    rel_components = np.minimum(buyer_values, seller_values) / C
+    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / max(1, keep_mask.sum()))
+    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / max(1, keep_mask.sum()))
+    return rel, div
+
 
 def get_value(
     buyer_data, seller_data, threshold=0.1, n_components=10, 
-    verbose=False, norm_volume=True, omega=0.1, dtype = np.float32,
+    verbose=False, normalize=False, omega=0.1, dtype = np.float32,
     decomp=None, decomp_kwargs={},
-    use_smallest_components = False,
+    # use_smallest_components = False,
     use_rbf_kernel=False,
+    use_neg_components=False,
+    # neg_weight=0.2,
+    num_neg=10,
 ):
     start_time = time.perf_counter()
     buyer_data = np.array(buyer_data, dtype=dtype)
@@ -160,11 +174,8 @@ def get_value(
     order = np.argsort(buyer_val)[::-1]
     sorted_buyer_val = buyer_val[order]
     sorted_buyer_vec = buyer_vec[:, order]
-    if use_smallest_components:
-        slice_index = np.s_[-n_components:]
-    else:
-        slice_index = np.s_[:n_components]
-    
+        
+    slice_index = np.s_[:n_components]
     buyer_values = sorted_buyer_val.real[slice_index]
     buyer_components = sorted_buyer_vec.real[:, slice_index]
         
@@ -172,48 +183,81 @@ def get_value(
         Decomp = decomp(n_components=n_components, **decomp_kwargs)
         Decomp.fit(buyer_data)
         Decomp.mean_ = np.zeros(seller_data.shape[1]) # dummy mean 
-        seller_values = np.linalg.norm(Decomp.transform(seller_cov), axis=0)
+        proj_buyer_cov = Decomp.transform(buyer_cov)
+        proj_seller_cov = Decomp.transform(seller_cov)
+        # seller_values = np.linalg.norm(proj_seller_cov, axis=0)
     else:
-        seller_values = np.linalg.norm(seller_cov @ buyer_components, axis=0)
+        proj_buyer_cov = buyer_cov @ buyer_components
+        proj_seller_cov = seller_cov @ buyer_components
         
-    # only include directions with value above this threshold
-    keep_mask = buyer_values >= threshold
-    
-    C = np.maximum(buyer_values, seller_values)  
-    div_components = np.abs(buyer_values - seller_values) / C
-    rel_components = np.minimum(buyer_values, seller_values) / C
-    div = np.prod(np.where(keep_mask, div_components, 1)) ** (1 / max(1, keep_mask.sum()))
-    rel = np.prod(np.where(keep_mask, rel_components, 1)) ** (1 / max(1, keep_mask.sum()))
-
+    seller_values = np.linalg.norm(proj_seller_cov, axis=0)
+    rel, div = compute_eigen_rel_div(buyer_values, seller_values, threshold=threshold)
     M, D = seller_data.shape
 
     if decomp is not None:
         # project seller data onto buyer's components
         X_sell = Decomp.transform(seller_data)
     else:
-        X_sell = seller_data.copy()
-
-    # Dispersion based diversity https://arxiv.org/abs/2003.08529
-    dis = gmean(np.std(X_sell, axis=0))
+        X_sell = seller_data @ buyer_components
         
     # Entropy based diversity https://arxiv.org/abs/2210.02410
+    K = lambda a, b: np.exp(-np.linalg.norm(a - b))
     if use_rbf_kernel:
-        K = lambda a, b: np.exp(-np.linalg.norm(a - b))
         vs = vendi.score(X_sell, K, normalize=True)
     else:
         vs = vendi.score_dual(X_sell, normalize=True)
 
-    # Volume based diversity https://proceedings.neurips.cc/paper/2021/file/59a3adea76fadcb6dd9e54c96fc155d1-Paper.pdf
-    if norm_volume:
+    if normalize:
         Norm = Normalizer(norm='l2')
         X_sell = Norm.fit_transform(X_sell)
+        
+    # Dispersion based diversity https://arxiv.org/abs/2003.08529
+    dis = gmean(np.std(X_sell, axis=0))
+
+    # Volume based diversity https://proceedings.neurips.cc/paper/2021/file/59a3adea76fadcb6dd9e54c96fc155d1-Paper.pdf
     vol = get_volume(X_sell, omega=omega)['robust_vol']
 
     # Compute the cosine similarity and L2 Distance
-    buyer_mean = np.mean(buyer_cov, axis=0)
-    seller_mean = np.mean(seller_cov, axis=0)
+    # buyer_mean = np.mean(buyer_cov, axis=0)
+    # seller_mean = np.mean(seller_cov, axis=0)
+    # cos = np.dot(buyer_mean, seller_mean) / (np.linalg.norm(buyer_mean) * np.linalg.norm(seller_mean))
+    # l2 = - np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
+    buyer_mean = np.mean(proj_buyer_cov, axis=0)
+    seller_mean = np.mean(proj_seller_cov, axis=0)
     cos = np.dot(buyer_mean, seller_mean) / (np.linalg.norm(buyer_mean) * np.linalg.norm(seller_mean))
-    l2 = - np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
+    l2 = -np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
+
+    ret = dict(relevance=rel, l2=l2, cosine=cos, diversity=div, volume=vol, vendi=vs, dispersion=dis)
+    
+    if use_neg_components:
+        neg_slice_index = np.random.choice(np.arange(round(D * 0.8), D), num_neg)
+        neg_buyer_values = sorted_buyer_val.real[neg_slice_index]
+        neg_buyer_components = sorted_buyer_vec.real[:, neg_slice_index]
+        neg_seller_values = np.linalg.norm(seller_cov @ neg_buyer_components, axis=0)
+        neg_rel, neg_div = compute_eigen_rel_div(neg_buyer_values, neg_seller_values, threshold=threshold)
+        neg_X_sell = seller_data @ neg_buyer_components
+        neg_dis = gmean(np.std(neg_X_sell, axis=0))
+        if use_rbf_kernel:
+            neg_vs = vendi.score(neg_X_sell, K, normalize=True)
+        else:
+            neg_vs = vendi.score_dual(neg_X_sell, normalize=True)
+        neg_vol = get_volume(neg_X_sell, omega=omega)['robust_vol']
+        
+        neg_proj_buyer_cov = buyer_cov @ neg_buyer_components
+        neg_proj_seller_cov = seller_cov @ neg_buyer_components
+        
+        neg_buyer_mean = np.mean(neg_proj_buyer_cov, axis=0)
+        neg_seller_mean = np.mean(neg_proj_seller_cov, axis=0)
+        neg_cos = np.dot(neg_buyer_mean, neg_seller_mean) / (np.linalg.norm(neg_buyer_mean) * np.linalg.norm(neg_seller_mean))
+        neg_l2 = -np.linalg.norm(neg_buyer_mean - neg_seller_mean)
+        ret['neg_relevance'] = neg_rel
+        ret['neg_l2'] = neg_l2
+        ret['neg_cosine'] = neg_cos
+        ret['neg_diversity'] = neg_div
+        ret['neg_dispersion'] = neg_div
+        ret['neg_volume'] = neg_vol
+        ret['neg_vendi'] = neg_vs
+
 
     end_time = time.perf_counter()
     
@@ -227,4 +271,4 @@ def get_value(
         print(np.prod(seller_values))
         print('time', end_time - start_time)
         
-    return dict(relevance=rel, l2=l2, cosine=cos, diversity=div, volume=vol, vendi=vs, dispersion=dis)
+    return ret

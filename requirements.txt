@@ -1,4 +1,6 @@
 numpy
+opendataval
+transformers
 torch
 torchvision
 scikit-learn
