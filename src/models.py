@@ -1,15 +1,15 @@
-from tqdm import tqdm
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 
 class embedding_model(torch.nn.Module):
     def __init__(
         self,
-        model='clip',
+        model="clip",
     ):
         pass
-        
+
     def forward(self):
         pass
 
@@ -41,10 +41,25 @@ def fit(model, loader, optimizer, classification=True, val_loader=None, epochs=1
     else:
         criterion = torch.nn.MSELoss()
     for i in tqdm(range(epochs)):
-        train_loss[i] = iteration(model, loader, optimizer, criterion, classification=classification, train=True)
+        train_loss[i] = iteration(
+            model,
+            loader,
+            optimizer,
+            criterion,
+            classification=classification,
+            train=True,
+        )
         if val_loader is not None:
-            val_loss[i] = iteration(model, val_loader, optimizer, criterion, classification=classification, train=False)
+            val_loss[i] = iteration(
+                model,
+                val_loader,
+                optimizer,
+                criterion,
+                classification=classification,
+                train=False,
+            )
     return (train_loss, val_loss) if val_loader else train_loss
+
 
 class LinearRegression(nn.Module):
     def __init__(self, inp_dim=1000, out_dim=1):
@@ -88,7 +103,8 @@ class CNN(nn.Module):
         x = self.relu(x)
         x = self.fc2(x)
         return x
-    
+
+
 # class LeNet(Module):
 # 	def __init__(self, numChannels, classes):
 # 		# call the parent constructor

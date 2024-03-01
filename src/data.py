@@ -164,7 +164,7 @@ def subsample(ds, n=100, test_split=0.5):
 
 def subset(dataset, classes):
     """
-        Patitions MNIST/FashionMNIST dataset by class labels
+    Patitions MNIST/FashionMNIST dataset by class labels
     """
     class_mask = {
         k: np.array(dataset.targets) == v for k, v in dataset.class_to_idx.items()
