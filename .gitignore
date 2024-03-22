@@ -1,14 +1,13 @@
 *.png
 *.pdf
-**/*.npy
-**/*.pt
-**/*.pth
+*.npy
+*.pt
+*.pth
 data/*
 embeddings/*
 models/*
 results/*
 figures/*
-old-figures/*
 **/__pycache__/
 .python-version
 **/.mypy_cache/

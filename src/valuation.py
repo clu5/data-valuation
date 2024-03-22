@@ -206,6 +206,9 @@ def get_value(
     use_neg_components=False,
     # neg_weight=0.2,
     num_neg=10,
+    use_dp=False,
+    dp_epsilon=0.1,
+    dp_delta=None,
 ):
     """
     Main valuation function
@@ -269,6 +272,11 @@ def get_value(
     # l2 = - np.linalg.norm(buyer_mean - seller_mean) # negative since we want the ordering to match
     buyer_mean = np.mean(proj_buyer_cov, axis=0)
     seller_mean = np.mean(proj_seller_cov, axis=0)
+
+    if use_dp:
+        noise = gaussian_mechanism(proj_seller_cov, epsilon=dp_epsilon, delta=dp_delta)
+        seller_mean += noise
+    
     cos = np.dot(buyer_mean, seller_mean) / (
         np.linalg.norm(buyer_mean) * np.linalg.norm(seller_mean)
     )
@@ -332,3 +340,42 @@ def get_value(
         print("time", end_time - start_time)
 
     return ret
+
+
+
+def gaussian_mechanism(data, sensitivity=None, delta=None, epsilon=0.1):
+    """
+    Applies the Gaussian mechanism for differential privacy.
+
+    data: The original output of the function/query before adding noise.
+    sensitivity: The sensitivity of the function/query. It measures the maximum change in the output
+                        that any single individual's data can cause.
+                    Defaults to absolute difference between max and min values divided by sample count
+    delta: The parameter for the Gaussian mechanism that allows for a small probability of the
+                  privacy guarantee not holding. This should be smaller than the inverse of any imaginable
+                  dataset size. 
+                  Defaults to 1/(dataset size)^2
+    epsilon: The privacy loss parameter. Smaller values mean better privacy.
+    
+    return: The differentially private result of the function/query after adding Gaussian noise.
+
+    """
+    data = np.array(data)
+    assert data.ndim >= 2, 'Check data shape. Assumes first dimension is number samples'
+    
+    # Calculate the sigma (standard deviation) for the Gaussian distribution
+    N = data.shape[1]
+    
+    if sensitivity is None:
+        sensitivity = np.abs(data.max(0) - data.min(0)) / N
+
+    if delta is None:
+        delta = 1 / N**2
+        
+    sigma = np.sqrt(2 * np.log(1.25 / delta)) * (sensitivity / epsilon)
+
+    # Generate the noise to add to the data
+    noise = np.random.normal(0, sigma, size=N)
+
+    # Add the noise to the original data and return
+    return noise
