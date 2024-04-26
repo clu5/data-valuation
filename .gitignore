@@ -11,4 +11,4 @@ figures/*
 **/__pycache__/
 .python-version
 **/.mypy_cache/
-**/.ipynb_checkpoints/
+**/.ipynb_checkpoints/*
