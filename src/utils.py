@@ -23,6 +23,16 @@ snd = lambda x: itemgetter(1)(list(x) if hasattr(x, "__iter__") else x)
 
 
 def create_model(arch="eff-b1", num_classes=1000):
+    """
+    Create a pre-trained EfficientNet model with specified architecture and number of output classes.
+
+    Parameters:
+        arch (str): Architecture type for the EfficientNet model (e.g., 'eff-b1').
+        num_classes (int): Number of output classes for the model.
+
+    Returns:
+        torch.nn.Module: The created EfficientNet model with a specific architecture.
+    """
     if arch == "eff-b0":
         model = models.efficientnet_b0(
             weights=models.EfficientNet_B0_Weights.IMAGENET1K_V1
@@ -53,11 +63,36 @@ def create_model(arch="eff-b1", num_classes=1000):
 
 
 def create_optimizer(model, lr=1e-5):
+    """
+    Create an AdamW optimizer for a given model with a specified learning rate.
+
+    Parameters:
+        model (torch.nn.Module): The model to optimize.
+        lr (float): Learning rate for the optimizer. Default is 1e-5.
+
+    Returns:
+        torch.optim.Optimizer: The created AdamW optimizer.
+    """
     opt = optim.AdamW(model.parameters(), lr=lr)
     return opt
 
 
 def update(model, opt, crit, train_loader, val_loader=None, epochs=10, save_name=None):
+    """
+    Train a model with specified optimizer, criterion, and data loaders, and optionally save model weights.
+
+    Parameters:
+        model (torch.nn.Module): The model to train.
+        opt (torch.optim.Optimizer): The optimizer to use for training.
+        crit (torch.nn.Module): Loss criterion to use.
+        train_loader (DataLoader): DataLoader for training data.
+        val_loader (DataLoader, optional): DataLoader for validation data. Default is None.
+        epochs (int, optional): Number of training epochs. Default is 10.
+        save_name (str, optional): Name for saving model weights. Default is None.
+
+    Returns:
+        tuple: A tuple containing training loss history and validation loss history (if validation data is provided).
+    """
     train_loss = []
     val_loss = []
     for i in range(epochs):
@@ -98,6 +133,18 @@ def update(model, opt, crit, train_loader, val_loader=None, epochs=10, save_name
 
 
 def evaluate(model, dataset, num_batches=None, batch_size=32):
+    """
+    Evaluate a model on a given dataset, returning logits for all samples.
+
+    Parameters:
+        model (torch.nn.Module): The model to evaluate.
+        dataset (Dataset): The dataset to evaluate against.
+        num_batches (int, optional): Limit on number of batches to process. Default is None.
+        batch_size (int, optional): Size of the batches for evaluation. Default is 32.
+
+    Returns:
+        np.ndarray: Concatenated logits from the model for all samples in the dataset.
+    """
     model = model.cuda()
     model.eval()
     loader = DataLoader(dataset, batch_size=batch_size)
@@ -113,6 +160,17 @@ def evaluate(model, dataset, num_batches=None, batch_size=32):
 
 
 def temp_scale(logits, labels, plot=True):
+    """
+    Apply temperature scaling to logits to improve calibration.
+
+    Parameters:
+        logits (np.ndarray): The logits to scale.
+        labels (np.ndarray): The ground truth labels.
+        plot (bool, optional): If True, plots the scaling process. Default is True.
+
+    Returns:
+        torch.Tensor: The temperature parameter after scaling.
+    """
     logits = torch.tensor(logits)
     labels = torch.tensor(labels)
     temperature = torch.nn.Parameter(torch.ones(1))
@@ -150,11 +208,30 @@ def temp_scale(logits, labels, plot=True):
 
 
 def AC_metric(scores):
+    """
+    Compute the Average Confidence metric from a set of scores.
+
+    Parameters:
+        scores (np.ndarray): The set of scores to evaluate.
+
+    Returns:
+        float: The average confidence, calculated as the mean of the maximum scores across all samples.
+    """
     scores = np.asarray(scores)
     return scores.max(1).mean()
 
 
 def DOC_metric(retrain_scores, base_scores):
+    """
+    Compute the Difference of Confidence metric between retrained and base model scores.
+
+    Parameters:
+        retrain_scores (np.ndarray): Scores from the retrained model.
+        base_scores (np.ndarray): Scores from the base model.
+
+    Returns:
+        float: The average difference in confidence between retrained and base models.
+    """
     retrain_scores = np.asarray(retrain_scores)
     base_scores = np.asarray(base_scores)
     assert retrain_scores.shape == base_scores.shape
@@ -168,11 +245,32 @@ def DOC_metric(retrain_scores, base_scores):
 
 
 def KL_divergence(p, q):
+    """
+    Calculate the Kullback-Leibler divergence between two probability distributions.
+
+    Parameters:
+        p (np.ndarray): The first distribution.
+        q (np.ndarray): The second distribution.
+
+    Returns:
+        float: The calculated Kullback-Leibler divergence.
+    """
     res = np.sum(np.where(p != 0, p * np.log(p / q), 0))
     return res
 
 
 def f_metric(retrain_scores, base_scores, divergence=KL_divergence):
+    """
+    Compute a custom metric based on a specified divergence function.
+
+    Parameters:
+        retrain_scores (np.ndarray): Scores from the retrained model.
+        base_scores (np.ndarray): Scores from the base model.
+        divergence (callable, optional): Function to calculate divergence between two distributions. Default is KL_divergence.
+
+    Returns:
+        float: The average divergence between retrained and base model scores.
+    """
     retrain_scores = np.asarray(retrain_scores)
     base_scores = np.asarray(base_scores)
     assert retrain_scores.shape == base_scores.shape

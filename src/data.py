@@ -18,7 +18,13 @@ from tqdm import tqdm
 
 def make_imagenet_csv(data_dir):
     """
-    Maps ImageNet UID to class names and indices
+    Create a DataFrame mapping ImageNet UID to class names and class indices.
+
+    Parameters:
+        data_dir (pathlib.Path): Directory containing the ImageNet mapping files.
+
+    Returns:
+        pandas.DataFrame: A DataFrame with columns 'class_index' and 'class_name', mapping UIDs to class indices.
     """
     index_to_names = {
         index: [n.strip().replace(" ", "_") for n in names.split(",")]
@@ -62,6 +68,18 @@ def make_imagenet_csv(data_dir):
 
 
 class simple_DS(Dataset):
+    """
+    A simple dataset class for PyTorch, optionally with transformations and labels.
+
+    This dataset class wraps a collection of images, and optionally labels and transformations.
+    It supports basic dataset operations such as getting the length of the dataset and retrieving
+    items by index.
+
+    Parameters:
+        images (list or array-like): Collection of images.
+        labels (list or array-like, optional): Corresponding labels for the images. Default is None.
+        transforms (callable, optional): Transformation function to apply to images. Default is None.
+    """
     def __init__(self, images, labels=None, transforms=None):
         self.images = images
         self.labels = labels
@@ -82,6 +100,22 @@ class simple_DS(Dataset):
 
 
 class DS(Dataset):
+    """
+    A dataset class for loading images from a directory, supporting different evaluation modes.
+
+    This dataset class is designed to load images from a specified directory, with support for
+    different image formats and domain-specific operations. It also supports transformation
+    functions for training and testing modes.
+
+    Parameters:
+        image_dir (pathlib.Path): Directory containing the image files.
+        class_df (pandas.DataFrame, optional): DataFrame containing class information for label extraction. Default is None.
+        extensions (list, optional): List of valid image file extensions. Default is [".jpg", ".jpeg", ".JPEG", ".JPG"].
+        transforms (callable, optional): Transformation function for training mode. Default is None.
+        test_transforms (callable, optional): Transformation function for test mode. Default is None.
+        eval_mode (bool, optional): If True, the dataset is in evaluation mode, using test_transforms. Default is False.
+        domain (str, optional): Domain or dataset name for specific operations. Default is "imagenet-val-set".
+    """
     def __init__(
         self,
         image_dir,
@@ -146,7 +180,20 @@ class DS(Dataset):
 
 def subsample(ds, n=100, test_split=0.5):
     """
-    Randomly subsets or partition a dataset into validation and test
+    Randomly create a subset of a given dataset, with an optional test split.
+
+    This function randomly selects a subset of a specified size from the given dataset.
+    If a test split is specified, the subset is further divided into validation and test
+    datasets.
+
+    Parameters:
+        ds (Dataset): The dataset to be subsampled.
+        n (int, optional): The number of samples to include in the subset. Default is 100.
+        test_split (float, optional): The fraction of the subset to use for testing. Default is 0.5.
+
+    Returns:
+        tuple or Subset: If test_split is greater than 0, returns a tuple containing
+                         the validation and test subsets. Otherwise, returns a single Subset.
     """
     index = np.random.choice(np.arange(len(ds)), n)
     if test_split > 0:
@@ -164,7 +211,17 @@ def subsample(ds, n=100, test_split=0.5):
 
 def subset(dataset, classes):
     """
-    Patitions MNIST/FashionMNIST dataset by class labels
+    Partition an MNIST or FashionMNIST dataset by specific class labels.
+
+    This function creates a boolean mask based on specific class labels, allowing
+    the partitioning of a dataset by those classes.
+
+    Parameters:
+        dataset (Dataset): The dataset to be partitioned.
+        classes (list): The list of class names to use for partitioning.
+
+    Returns:
+        np.ndarray: A boolean array indicating which samples belong to the specified classes.
     """
     class_mask = {
         k: np.array(dataset.targets) == v for k, v in dataset.class_to_idx.items()

@@ -36,12 +36,36 @@ import valuation
 
 
 def resize(x, size=(32, 32)):
+    """
+    Resize a tensor or array to the specified size.
+
+    Parameters:
+        x (torch.Tensor or np.ndarray): The input tensor or array to resize.
+        size (tuple, optional): The target size as (width, height). Default is (32, 32).
+
+    Returns:
+        torch.Tensor: The resized tensor.
+    """
     if not isinstance(x, torch.Tensor):
         x = torch.tensor(x)
     return Resize(size)(x)
 
 
 def make_mnistm(data_dir):
+    """
+    Create or load MNIST-M dataset from the specified data directory.
+
+    If the dataset exists in the specified location, it loads from there. Otherwise, it creates the dataset
+    and saves it to the specified location.
+
+    Parameters:
+        data_dir (Path): The directory where the dataset is or will be stored.
+
+    Returns:
+        tuple: A tuple containing:
+            - mnistm_data (torch.Tensor): The data for MNIST-M.
+            - mnistm_targets (torch.Tensor): The corresponding labels for MNIST-M.
+    """
     if (data_dir / "mnistm_data.pt").exists():
         mnistm_data = torch.load(data_dir / "mnistm_data.pt")
         mnistm_targets = torch.load(data_dir / "mnistm_targets.pt")
@@ -74,6 +98,20 @@ def make_mnistm(data_dir):
 
 
 def make_dida(data_dir):
+    """
+    Create or load the DIDA dataset from the specified data directory.
+
+    If the dataset exists in the specified location, it loads from there. Otherwise, it creates the dataset
+    and saves it to the specified location.
+
+    Parameters:
+        data_dir (Path): The directory where the dataset is or will be stored.
+
+    Returns:
+        tuple: A tuple containing:
+            - dida_data (torch.Tensor): The data for the DIDA dataset.
+            - dida_targets (torch.Tensor): The corresponding labels for the DIDA dataset.
+    """
     if (data_dir / "dida_data.pt").exists():
         dida_data = torch.load(data_dir / "dida_data.pt")
         dida_targets = torch.load(data_dir / "dida_targets.pt")
@@ -100,6 +138,18 @@ def make_dida(data_dir):
 
 
 def make_data(data_dir):
+    """
+    Create or download a set of datasets and return them in a dictionary.
+
+    This function creates or downloads multiple datasets, including MNIST, EMNIST, QMNIST, SVHN, DIDA,
+    and MNIST-M, resizing them to a common shape and structure.
+
+    Parameters:
+        data_dir (Path): The directory to store or load the datasets.
+
+    Returns:
+        dict: A dictionary with dataset names as keys and corresponding data and targets as values.
+    """
     mnist = MNIST(root=data_dir, train=True, download=True)
     emnist = EMNIST(root=data_dir, split="digits", train=True, download=True)
     qmnist = QMNIST(root=data_dir, what="test50k", train=True, download=True)
@@ -139,6 +189,15 @@ def make_data(data_dir):
 
 
 def embed(data):
+    """
+    Embed the data using a pre-trained ResNet18 model.
+
+    Parameters:
+        data (torch.Tensor): The data to embed, expected to be normalized to [0, 1].
+
+    Returns:
+        torch.Tensor: The embedded output from the ResNet18 model.
+    """
     model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1).cuda()
     model.eval()
     loader = DataLoader(TensorDataset(data / 255), batch_size=32)
@@ -149,6 +208,18 @@ def embed(data):
 
 
 def get_valuation(buyer_pca, seller):
+    """
+    Calculate relevance and volume for valuation between a buyer and seller.
+
+    Parameters:
+        buyer_pca (PCA): The PCA model fit on the buyer's data.
+        seller (torch.Tensor): The seller's data to evaluate.
+
+    Returns:
+        tuple: A tuple containing:
+            - relevance (float): The relevance score.
+            - volume (float): The volume score.
+    """
     rel = valuation.get_relevance(buyer_pca, seller)
     # vol = valuation.get_volume(np.cov(buyer_pca.transform(seller).T))
     vol = valuation.get_volume(buyer_pca.transform(seller).T)
@@ -156,6 +227,17 @@ def get_valuation(buyer_pca, seller):
 
 
 def make_data_loader(data, targets, batch_size=32):
+    """
+    Create a DataLoader from given data and targets.
+
+    Parameters:
+        data (torch.Tensor or np.ndarray): The data to load.
+        targets (torch.Tensor or np.ndarray): The targets associated with the data.
+        batch_size (int, optional): The size of each batch. Default is 32.
+
+    Returns:
+        DataLoader: A DataLoader instance with the given data and targets.
+    """
     if not isinstance(data, torch.Tensor):
         data = torch.tensor(data)
     if not isinstance(targets, torch.Tensor):
@@ -164,6 +246,21 @@ def make_data_loader(data, targets, batch_size=32):
 
 
 def train(buyer_data, buyer_targets, seller_data, seller_targets, args):
+    """
+    Train two models (classification and regression) using given buyer and seller data, and return metrics and losses.
+
+    Parameters:
+        buyer_data (torch.Tensor): Data for the buyer model.
+        buyer_targets (torch.Tensor): Targets for the buyer model.
+        seller_data (torch.Tensor): Data for the seller model.
+        seller_targets (torch.Tensor): Targets for the seller model.
+        args (argparse.Namespace): Command-line arguments containing training settings.
+
+    Returns:
+        dict: A dictionary containing:
+            - "metrics": A dictionary with keys 'accuracy' and 'MAE' representing accuracy and mean absolute error.
+            - "losses": A dictionary with keys 'classification' and 'regression' representing classification and regression losses.
+    """
     buyer_loader = make_data_loader(buyer_data, buyer_targets)
     seller_loader = make_data_loader(seller_data, seller_targets)
     cls_model = models.CNN().cuda()
@@ -195,6 +292,12 @@ def train(buyer_data, buyer_targets, seller_data, seller_targets, args):
 
 
 def main(args):
+    """
+    Main function to perform the valuation and plot results for multiple datasets.
+
+    Parameters:
+        args (argparse.Namespace): Command-line arguments containing configuration settings.
+    """
     print(args)
     data_dir = Path(args.data_dir)
     datasets = make_data(data_dir)

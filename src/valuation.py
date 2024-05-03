@@ -133,6 +133,24 @@ def get_volume(X, omega=0.1, norm=False):
 def cluster_valuation(
     buyer_data, seller_data, k_means=None, n_clusters=10, n_components=25
 ):
+    """
+    Cluster-based valuation for buyer and seller data.
+
+    This function partitions the given buyer and seller data into clusters using k-means clustering, 
+    and then evaluates each cluster's relevance and volume based on PCA (Principal Component Analysis).
+
+    Parameters:
+        buyer_data (np.ndarray): Data for buyers, expected as a 2D array (samples x features).
+        seller_data (np.ndarray): Data for sellers, expected as a 2D array (samples x features).
+        k_means (KMeans, optional): Pre-trained k-means clustering model. If None, a new one is created.
+        n_clusters (int, optional): Number of clusters to create. Default is 10.
+        n_components (int, optional): Number of principal components for PCA. Default is 25.
+
+    Returns:
+        tuple: A tuple containing:
+            - rel (float): Average relevance across clusters.
+            - vol (float): Average volume across clusters.
+    """
     if k_means is None:
         k_means = KMeans(n_clusters=n_clusters, n_init="auto")
         k_means.fit(buyer_data)
@@ -175,6 +193,21 @@ def cluster_valuation(
 
 
 def compute_eigen_rel_div(buyer_values, seller_values, threshold=0.1):
+    """
+    Compute relevance and diversity based on eigenvalues.
+
+    This function calculates the relevance and diversity between buyer and seller eigenvalues.
+    
+    Parameters:
+        buyer_values (np.ndarray): Eigenvalues for buyers.
+        seller_values (np.ndarray): Eigenvalues for sellers.
+        threshold (float, optional): Threshold for inclusion in calculations. Default is 0.1.
+
+    Returns:
+        tuple: A tuple containing:
+            - rel (float): Relevance score.
+            - div (float): Diversity score.
+    """
     # only include directions with value above this threshold
     keep_mask = buyer_values >= threshold
 
@@ -210,8 +243,31 @@ def get_value(
     dp_epsilon=0.1,
     dp_delta=None,
 ):
+
     """
-    Main valuation function
+    Calculate relevance and diversity valuation metrics for given buyer and seller data.
+
+    Parameters:
+        buyer_data (np.ndarray): Data for buyers, expected as a 2D array (samples x features).
+        seller_data (np.ndarray): Data for sellers, expected as a 2D array (samples x features).
+        threshold (float, optional): Threshold for inclusion in relevance calculations. Default is 0.1.
+        n_components (int, optional): Number of principal components for PCA. Default is 10.
+        verbose (bool, optional): If True, prints detailed information during execution. Default is False.
+        normalize (bool, optional): If True, normalizes the data. Default is False.
+        omega (float, optional): Parameter for volume-based diversity calculation. Default is 0.1.
+        dtype (type, optional): Data type for conversion. Default is np.float32.
+        decomp (type, optional): Custom decomposition class for data transformation. Default is None.
+        decomp_kwargs (dict, optional): Additional arguments for the custom decomposition. Default is {}.
+        use_rbf_kernel (bool, optional): If True, applies an RBF kernel for diversity calculation. Default is False.
+        use_neg_components (bool, optional): If True, calculates metrics for negative components. Default is False.
+        num_neg (int, optional): Number of negative components to consider. Default is 10.
+        use_dp (bool, optional): If True, applies differential privacy to the calculations. Default is False.
+        dp_epsilon (float, optional): Epsilon value for differential privacy. Default is 0.1.
+        dp_delta (float, optional): Delta value for differential privacy. Default is None.
+    
+    Returns:
+        dict: A dictionary containing calculated metrics including relevance, L2 distance, cosine similarity,
+        diversity, volume, vendi score, and dispersion.
     """
     start_time = time.perf_counter()
     buyer_data = np.array(buyer_data, dtype=dtype)
