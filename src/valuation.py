@@ -190,7 +190,7 @@ def compute_eigen_rel_div(buyer_values, seller_values, threshold=0.1):
     return rel, div
 
 
-def get_value(
+def get_measurements(
     buyer_data,
     seller_data,
     threshold=0.1,
@@ -285,10 +285,11 @@ def get_value(
     )  # negative since we want the ordering to match
 
     ret = dict(
-        relevance=rel,
+        # relevance=rel,
+        overlap=rel,
         l2=l2,
         cosine=cos,
-        diversity=div,
+        # diversity=div,
         volume=vol,
         vendi=vs,
         dispersion=dis,
