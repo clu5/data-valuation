@@ -285,11 +285,9 @@ def get_measurements(
     )  # negative since we want the ordering to match
 
     ret = dict(
-        # relevance=rel,
         overlap=rel,
         l2=l2,
         cosine=cos,
-        # diversity=div,
         volume=vol,
         vendi=vs,
         dispersion=dis,
