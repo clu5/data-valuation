@@ -14,8 +14,8 @@ Follow the instructions in `0-Colab-Setup.ipynb`
 Run the notebook `1-MNIST-compare.ipynb`
 
 ### Download precomputed CLIP embeddings
-- [](https://figshare.com/s/06bdbbe7c6133d2b2bb7)
+- [link to data](https://figshare.com/s/06bdbbe7c6133d2b2bb7)
 
 
 ### Anonymized repo
-- [](https://anonymous.4open.science/r/data-valuation-302F)
+- [link to code](https://anonymous.4open.science/r/data-valuation-302F)
