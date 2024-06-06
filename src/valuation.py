@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 from PIL import Image
 from scipy.linalg import cosm
-from scipy.stats import gmean
+from scipy.stats import gmean, pearsonr
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import Normalizer
@@ -209,6 +209,7 @@ def get_measurements(
     use_dp=False,
     dp_epsilon=0.1,
     dp_delta=None,
+    return_components=False,
 ):
     """
     Main valuation function
@@ -284,14 +285,22 @@ def get_measurements(
         buyer_mean - seller_mean
     )  # negative since we want the ordering to match
 
+    corr = pearsonr(buyer_mean, seller_mean).statistic
+    
     ret = dict(
+        correlation=corr,
         overlap=rel,
         l2=l2,
         cosine=cos,
+        difference=div,
         volume=vol,
         vendi=vs,
         dispersion=dis,
     )
+    if return_components:
+        ret['buyer_components'] = buyer_values
+        ret['seller_components'] = seller_values
+        
 
     if use_neg_components:
         neg_slice_index = np.random.choice(np.arange(round(D * 0.8), D), num_neg)

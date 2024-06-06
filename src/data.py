@@ -91,6 +91,7 @@ class DS(Dataset):
         test_transforms=None,
         eval_mode=False,
         domain="imagenet-val-set",
+        debug=False,
     ):
         if domain is None:
             self.domain = image_dir.stem
@@ -109,6 +110,10 @@ class DS(Dataset):
         self.transforms = transforms
         self.test_transforms = test_transforms
         self.eval_mode = eval_mode
+        self.debug=debug
+        if debug:
+            self.images = self.images[:32]
+            self.len = 32
 
     def __len__(self):
         return self.len
