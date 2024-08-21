@@ -21,5 +21,4 @@ Run the notebook `1-MNIST-compare.ipynb`
 - [link to code](https://anonymous.4open.science/r/data-valuation-302F)
 
 ## Streamlit Demo
-
-Navigate to [link to demo](https://appdemo0.streamlit.app)
+- [link to demo](https://appdemo0.streamlit.app)
