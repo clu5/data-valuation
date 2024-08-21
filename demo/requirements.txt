@@ -1,0 +1,11 @@
+torch
+streamlit
+pandas
+numpy
+Pillow  
+torchvision
+transformers
+matplotlib
+scipy
+scikit-learn
+vendi-score
