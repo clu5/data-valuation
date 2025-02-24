@@ -1,3 +1,4 @@
+old-*
 *.png
 *.pdf
 *.npy
@@ -8,6 +9,7 @@ embeddings/*
 models/*
 results/*
 figures/*
+new-figures/*
 **/__pycache__/
 .python-version
 **/.mypy_cache/
