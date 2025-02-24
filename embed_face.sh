@@ -4,30 +4,7 @@ set -e  # Exit on error
 # Default paths
 DATA_DIR="${DATA_DIR:-/mnt/data}"
 OUTPUT_DIR="embeddings"
-LABELS_CSV="$DATA_DIR/imagenet.csv"
-
-# Uncomment the ImageNet-C corruptions you want to process:
-declare -a SELECTED_CORRUPTIONS=(
-    # "brightness"
-    "contrast"
-    "defocus_blur"
-    # "elastic_transform"
-    "fog"
-    # "frost"
-    # "gaussian_blur"
-    "gaussian_noise"
-    # "glass_blur"
-    # "impulse_noise"
-    "jpeg_compression"
-    # "motion_blur"
-    "pixelate"
-    # "saturate"
-    # "shot_noise"
-    # "snow"
-    # "spatter"
-    # "speckle_noise"
-    # "zoom_blur"
-)
+LABELS_CSV="$DATA_DIR/fairface_labels.csv"
 
 # Available models
 declare -a ALL_MODELS=(
@@ -87,11 +64,8 @@ done
 
 # Regular datasets to process
 declare -a DATASETS=(
-    "imagenet-a"
-    "imagenet-val-set"
-    "imagenetv2-matched-frequency-format-val"
-    "imagenet-r"
-    "imagenet-sketch"
+    "fairface"
+    "utkface"
 )
 
 # Function to process a dataset with a specific model
@@ -121,7 +95,7 @@ process_dataset() {
         --output-dir "$OUTPUT_DIR" \
         --labels-csv "$LABELS_CSV" \
         --model "$model" \
-        --domain imagenet"
+        --domain face"
     
     if [[ "$DEBUG" = true ]]; then
         cmd+=" --debug"
@@ -137,59 +111,6 @@ process_dataset() {
     fi
 }
 
-# Function to process imagenet-c corruptions with a specific model
-process_imagenetc() {
-    local model=$1
-    local imagenetc_dir="$DATA_DIR/imagenet-c"
-    
-    # Check if imagenet-c directory exists
-    if [[ ! -d "$imagenetc_dir" ]]; then
-        echo "Warning: ImageNet-C directory not found at $imagenetc_dir, skipping..."
-        return
-    fi
-    
-    # Process each corruption type
-    for corruption in "${SELECTED_CORRUPTIONS[@]}"; do
-        local level3_dir="$imagenetc_dir/$corruption/3"
-        local output_file="$OUTPUT_DIR/imagenet-c_${corruption}_${model}.pt"
-        
-        # Check if level 3 exists
-        if [[ ! -d "$level3_dir" ]]; then
-            echo "Warning: Level 3 not found for $corruption, skipping..."
-            continue
-        fi
-        
-        # Check if output exists and force flag
-        if [[ -f "$output_file" && "$FORCE" = false ]]; then
-            echo "Embeddings for ImageNet-C $corruption ($model) already exist, skipping..."
-            continue
-        fi
-        
-        echo "Processing ImageNet-C $corruption with $model..."
-        
-        # Build Python command with optional debug flag
-        cmd="python3 src/embed_images.py \
-            --input "$level3_dir" \
-            --output-dir "$OUTPUT_DIR" \
-            --labels-csv "$LABELS_CSV" \
-            --model "$model" \
-            --domain imagenet"
-        
-        if [[ "$DEBUG" = true ]]; then
-            cmd+=" --debug"
-        fi
-        
-        eval $cmd
-        
-        if [[ $? -eq 0 ]]; then
-            echo "Successfully processed ImageNet-C $corruption with $model"
-        else
-            echo "Error processing ImageNet-C $corruption with $model"
-            exit 1
-        fi
-    done
-}
-
 # Create output directory if it doesn't exist
 mkdir -p "$OUTPUT_DIR"
 
@@ -198,9 +119,6 @@ echo "Starting embedding generation..."
 echo "Output directory: $OUTPUT_DIR"
 echo "Labels CSV: $LABELS_CSV"
 echo "Selected models: ${SELECTED_MODELS[*]}"
-if [ ${#SELECTED_CORRUPTIONS[@]} -gt 0 ]; then
-    echo "Selected corruptions: ${SELECTED_CORRUPTIONS[*]}"
-fi
 if [[ "$FORCE" = true ]]; then
     echo "Force mode: enabled"
 fi
@@ -219,11 +137,6 @@ for model in "${SELECTED_MODELS[@]}"; do
         process_dataset "$dataset" "$model"
         echo
     done
-    
-    # Process ImageNet-C corruptions
-    echo "Processing ImageNet-C corruptions with $model..."
-    process_imagenetc "$model"
-    echo
 done
 
 echo "All processing completed!"

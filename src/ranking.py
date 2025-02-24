@@ -54,6 +54,9 @@ def main():
 
     # Ranking experiments
     rank_results = defaultdict(list)
+    first_buyer = list(datasets.keys())[0]
+    first_buyer_results = defaultdict(list)
+    
     for j in tqdm(range(args.num_trials), desc="Trials"):
         for buyer in datasets.keys():
             results = defaultdict(list)
@@ -70,6 +73,8 @@ def main():
                 rank_results[m].append(
                     rank(dict(zip(results.keys(), [v[m] for v in results.values()])), buyer)
                 )
+                if buyer == first_buyer:
+                    first_buyer_results[m].append({seller: results[seller][m] for seller in datasets.keys()})
 
     # Print average rankings
     print("\nAverage rankings across buyers for each measurement:")
@@ -77,16 +82,19 @@ def main():
         avg_rank = np.mean(rank_results[m])
         print(f"{m:<15}: {avg_rank:.2f}")
 
-    # Plotting code
-    fig, axes = plt.subplots(2, 4, figsize=(16, 14))
+    # Plotting code for the first buyer
+    num_measures = len(args.measures)
+    num_cols = 4
+    num_rows = (num_measures + num_cols - 1) // num_cols
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(6 * num_cols, 3.5 * num_rows))
 
     for ax, val in zip(axes.flat, args.measures):
         names = list(datasets.keys())
-        values = [np.mean(rank_results[val])]
+        values = [np.mean([trial[seller] for trial in first_buyer_results[val]]) for seller in names]
         index = np.argsort(values)
-        sorted_names = [names[i] for i in index]
+        sorted_names = [names[i][:16] for i in index]
         sorted_values = [values[i] for i in index]
-        color = ["C1" if names[i] == buyer else "C0" for i in index]
+        color = ["C1" if names[i] == first_buyer else "C0" for i in index]
 
         if val in ["correlation", "overlap", "difference", "cosine"]:
             ax.set_xlim(0, 1)
@@ -99,10 +107,12 @@ def main():
         ax.set_xticks(ax.get_xticks(), ax.get_xticklabels(), fontsize="x-large")
         ax.set_yticks(ax.get_yticks(), ax.get_yticklabels(), fontsize="xx-large")
         ax.set_title(val.capitalize(), fontsize="xx-large")
-    fig.suptitle(f"Model Type: {args.model_type}", fontsize="xx-large")
+        ax.grid(axis='x', linestyle='--')
+    fig.suptitle(f"Model Type: {args.model_type} - Buyer: {first_buyer}", fontsize="xx-large")
     fig.tight_layout(w_pad=0)
-    fig.savefig(f"{args.fig_output_dir}/ranking_{args.model_type}.png", bbox_inches="tight", dpi=800)
-    print(f"Figure saved to {args.fig_output_dir}/ranking_{args.model_type}.png")
+    save_name = f"{args.fig_output_dir}/ranking_{args.search_pattern.split('_')[0]}_{args.model_type}.png"
+    fig.savefig(save_name, bbox_inches="tight", dpi=800)
+    print(f"Figure saved to {save_name}")
 
 if __name__ == "__main__":
     main()
