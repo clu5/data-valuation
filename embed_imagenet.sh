@@ -89,7 +89,7 @@ done
 declare -a DATASETS=(
     "imagenet-a"
     "imagenet-val-set"
-    "imagenetv2-matched-frequency-format-val"
+    # "imagenetv2-matched-frequency-format-val"
     "imagenet-r"
     "imagenet-sketch"
 )
@@ -179,7 +179,7 @@ process_imagenetc() {
             cmd+=" --debug"
         fi
         
-        eval $cmd
+        # eval $cmd
         
         if [[ $? -eq 0 ]]; then
             echo "Successfully processed ImageNet-C $corruption with $model"

@@ -13,6 +13,7 @@ import torch
 import torch.optim as optim
 from PIL import Image
 from sklearn.decomposition import PCA
+from scipy.stats import kendalltau, pearsonr
 from torch.utils.data import (ConcatDataset, DataLoader, Dataset, Subset,
                               WeightedRandomSampler)
 from torchvision import models, transforms
@@ -20,6 +21,131 @@ from tqdm import tqdm
 
 fst = lambda x: itemgetter(0)(list(x) if hasattr(x, "__iter__") else x)
 snd = lambda x: itemgetter(1)(list(x) if hasattr(x, "__iter__") else x)
+
+
+def calculate_correlation(x, y, use_rank=False):
+    corr_func = kendalltau if use_rank else pearsonr
+    return corr_func(x, y).statistic
+
+def fit_line(x, y, poly=1):
+    """Fit a polynomial line to the data"""
+    coeff = np.polyfit(x, y, poly)
+    polynomial = np.poly1d(coeff)
+    x_fit = np.linspace(min(x), max(x), 100)
+    y_fit = polynomial(x_fit)
+    return x_fit, y_fit
+
+def plot_correlations(res, trial_idx=0, output_dir=None):
+    """
+    Plot correlations between measurements and utility for a specific trial.
+    
+    Args:
+        res: Dictionary containing experiment results
+        trial_idx: Index of trial to visualize
+        output_dir: Directory to save plots (if None, will show instead)
+    """
+    j = trial_idx
+    
+    # Extract metrics
+    x_vol = [v['volume'] for v in res['measurements'][j].values()]
+    x_over = [v['overlap'] for v in res['measurements'][j].values()]
+    y_util = [v['utility'] for v in res['test_utility'][j].values()]
+    y_per = [v['percent_relevant_samples'] for v in res['test_utility'][j].values()]
+    
+    # Extract Shapley values if available
+    has_knn = 'KNNShapley' in list(res['data_values'][j].values())[0]
+    has_lava = 'LavaEvaluator' in list(res['data_values'][j].values())[0]
+    
+    if has_knn:
+        x_knn = [-v['KNNShapley'] for v in res['data_values'][j].values()]
+    if has_lava:
+        x_lava = [v['LavaEvaluator'] for v in res['data_values'][j].values()]
+
+    # Create plots
+    fig, ax = plt.subplots(ncols=3, figsize=(15, 5))
+    
+    # Plot 1: Overlap vs Utility
+    ax[0].grid(ls='--')
+    ax[0].plot(*fit_line(x_over, y_util), color="red", label="Fitted curve", ls="--")
+    ax[0].scatter(
+        x_over,
+        y_util,
+        edgecolors="k",
+        lw=0.5,
+        s=50,
+    )
+    ax[0].set_xlabel('Relevance', fontsize='xx-large', labelpad=10)
+    ax[0].set_ylabel('Utility', fontsize='xx-large', labelpad=10)
+    ax[0].tick_params(axis='both', which='major', labelsize=14)
+    ax[0].set_title(
+        fr"$\rho$={round(pearsonr(x_over, y_util).statistic, 2)}",
+        fontsize='xx-large',
+    )
+
+    # Plot 2: Volume vs Utility
+    ax[1].grid(ls='--')
+    ax[1].plot(*fit_line(x_vol, y_util), color="red", label="Fitted curve", ls="--")
+    ax[1].scatter(
+        x_vol,
+        y_util,
+        edgecolors="k",
+        lw=0.5,
+        s=50,
+    )
+    ax[1].set_xlabel('Diversity', fontsize='xx-large', labelpad=10)
+    ax[1].set_ylabel('Utility', fontsize='xx-large', labelpad=10)
+    ax[1].tick_params(axis='both', which='major', labelsize=14)
+    ax[1].set_title(
+        fr"$\rho$={round(pearsonr(x_vol, y_util).statistic, 2)}",
+        fontsize='xx-large',
+    )
+
+    # Plot 3: KNN Shapley vs Utility or Volume vs Percent Class Overlap
+    if has_knn:
+        ax[2].grid(ls='--')
+        ax[2].plot(*fit_line(x_knn, y_util), color="red", label="Fitted curve", ls="--")
+        ax[2].scatter(
+            x_knn,
+            y_util,
+            edgecolors="k",
+            lw=0.5,
+            s=50,
+        )
+        ax[2].set_xlabel('Average KNN Shapley Value', fontsize='xx-large', labelpad=10)
+        ax[2].set_ylabel('Utility', fontsize='xx-large', labelpad=10)
+        ax[2].tick_params(axis='both', which='major', labelsize=14)
+        ax[2].set_title(
+            fr"$\rho$={round(pearsonr(x_knn, y_util).statistic, 2)}",
+            fontsize='xx-large',
+        )
+    else:
+        # Alternative: Plot volume vs percent class overlap
+        ax[2].grid(ls='--')
+        ax[2].plot(*fit_line(x_vol, y_per), color="red", label="Fitted curve", ls="--")
+        ax[2].scatter(
+            x_vol,
+            y_per,
+            edgecolors="k",
+            lw=0.5,
+            s=50,
+        )
+        ax[2].set_xlabel('Diversity', fontsize='xx-large', labelpad=10)
+        ax[2].set_ylabel('Percent Class Overlap', fontsize='xx-large', labelpad=10)
+        ax[2].tick_params(axis='both', which='major', labelsize=14)
+        ax[2].set_title(
+            fr"$\rho$={round(pearsonr(x_vol, y_per).statistic, 2)}",
+            fontsize='xx-large',
+        )
+    
+    fig.tight_layout(w_pad=4)
+    
+    if output_dir:
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path / f"correlations_trial_{trial_idx}.png", bbox_inches='tight')
+        plt.savefig(output_path / f"correlations_trial_{trial_idx}.pdf", bbox_inches='tight')
+    else:
+        plt.show()
 
 
 def create_model(arch="eff-b1", num_classes=1000):

@@ -8,6 +8,8 @@ data/*
 embeddings/*
 models/*
 results/*
+old-results/*
+old_results/*
 figures/*
 new-figures/*
 **/__pycache__/

@@ -190,9 +190,33 @@ def compute_eigen_rel_div(buyer_values, seller_values, threshold=0.1):
     return rel, div
 
 
+def get_query(x_buyer, projection="pca", n_components=10, projection_kwargs={}):
+    """
+    Compute the buyer query (eigenvectors) using the buyer's data.
+    
+    Args:
+        x_buyer: Buyer's data
+        n_components: Number of principal components to compute
+    
+    Returns:
+        Eigenvectors (principal components)
+    """
+    if projection == "pca":
+        p = PCA(n_components=n_components)
+        p.fit(x_buyer)
+        p.mean_ = np.zeros(x_buyer.shape[1])  # dummy mean
+    elif projection == "Gaussian":
+        p = GaussianRandomProjection(n_components=n_components)
+        p.fit(x_buyer)
+    else:
+        pass
+    return p
+
+
 def get_measurements(
     buyer_data,
     seller_data,
+    seller_id=None,
     threshold=0.1,
     n_components=10,
     verbose=False,
@@ -347,7 +371,10 @@ def get_measurements(
         print(np.prod(seller_values))
         print("time", end_time - start_time)
 
-    return ret
+    if seller_id is not None:
+        return seller_id, ret
+    else:
+        return ret
 
 
 

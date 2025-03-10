@@ -22,11 +22,11 @@ def main():
     parser = argparse.ArgumentParser(description="Ranking script for data valuation")
     parser.add_argument("--model_type", type=str, choices=["clip", "dino", "efficientnet"], default="clip", help="Type of model")
     parser.add_argument("--embedding_dir", type=str, default='embeddings', help="Directory containing embedding files")
-    parser.add_argument("--search_pattern", type=str, default="imagenet*_{model_type}", help="Search pattern for embedding and CSV files")
+    parser.add_argument("--search_pattern", type=str, default="*", help="Search pattern for embedding and CSV files")
     parser.add_argument("--filter_class", type=str, help="Class to filter by")
     parser.add_argument("--num_buy", type=int, default=100, help="Number of buy samples")
     parser.add_argument("--num_sell", type=int, default=10000, help="Number of sell samples")
-    parser.add_argument("--num_trials", type=int, default=1, help="Number of trials")
+    parser.add_argument("--num_trials", type=int, default=10, help="Number of trials")
     parser.add_argument("--n_components", type=int, default=10, help="Number of components")
     parser.add_argument("--fig_output_dir", type=str, default="figures", help="Directory to save figures")
     parser.add_argument("--measures", type=str, nargs='+', default=["l2", "cosine", "correlation", "overlap", "volume", "vendi", "dispersion", "difference"], help="Measures to use")
@@ -35,8 +35,9 @@ def main():
     # Load and preprocess data
     datasets = {}
     embedding_dir = Path(args.embedding_dir)
-    search_pattern = args.search_pattern.format(model_type=args.model_type)
-    for emb_path in embedding_dir.glob(f"{search_pattern}.pt"):
+    search_pattern = f"{args.search_pattern}_{args.model_type}.pt"
+    embedding_paths = sorted(embedding_dir.glob(search_pattern))
+    for emb_path in embedding_paths:
         csv_path = emb_path.with_suffix('.csv')
         embeddings = torch.load(emb_path)["embeddings"]
         df = pd.read_csv(csv_path)
@@ -78,15 +79,16 @@ def main():
 
     # Print average rankings
     print("\nAverage rankings across buyers for each measurement:")
-    for m in args.measures:
-        avg_rank = np.mean(rank_results[m])
-        print(f"{m:<15}: {avg_rank:.2f}")
+    mean_rankings = {m: np.mean(rank_results[m]) for m in args.measures}
+    print(mean_rankings)
+    for m, r in sorted(mean_rankings.items(), key=lambda x: x[1]):  
+        print(f"{m:-<15}: {r:.2f}")
 
     # Plotting code for the first buyer
     num_measures = len(args.measures)
     num_cols = 4
     num_rows = (num_measures + num_cols - 1) // num_cols
-    fig, axes = plt.subplots(num_rows, num_cols, figsize=(6 * num_cols, 3.5 * num_rows))
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(6 * num_cols, 4 * num_rows))
 
     for ax, val in zip(axes.flat, args.measures):
         names = list(datasets.keys())
@@ -106,8 +108,21 @@ def main():
         )
         ax.set_xticks(ax.get_xticks(), ax.get_xticklabels(), fontsize="x-large")
         ax.set_yticks(ax.get_yticks(), ax.get_yticklabels(), fontsize="xx-large")
-        ax.set_title(val.capitalize(), fontsize="xx-large")
+        
+        # Calculate the relative gap ratio
+        if len(sorted_values) > 1:
+            highest_value = sorted_values[-1]
+            second_highest_value = sorted_values[-2]
+            if sorted_names[-1] == first_buyer:
+                ratio = highest_value / second_highest_value
+            else:
+                ratio = second_highest_value / highest_value
+        else:
+            ratio = 1.0
+        
+        ax.set_title(f"{val.capitalize()} (Ratio: {ratio:.2f})", fontsize="xx-large")
         ax.grid(axis='x', linestyle='--')
+        
     fig.suptitle(f"Model Type: {args.model_type} - Buyer: {first_buyer}", fontsize="xx-large")
     fig.tight_layout(w_pad=0)
     save_name = f"{args.fig_output_dir}/ranking_{args.search_pattern.split('_')[0]}_{args.model_type}.png"

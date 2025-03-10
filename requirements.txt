@@ -1,3 +1,4 @@
+joblib
 numpy
 opendataval
 transformers

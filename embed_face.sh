@@ -65,7 +65,7 @@ done
 # Regular datasets to process
 declare -a DATASETS=(
     "fairface"
-    "utkface"
+    "utk-face"
 )
 
 # Function to process a dataset with a specific model

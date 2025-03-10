@@ -165,7 +165,7 @@ def get_image_paths(
     # Recursively find all files with matching extensions
     image_paths = [
         p for p in dataset_path.rglob('*') 
-        if p.suffix.lower() in file_extensions
+        if p.suffix.lower() in file_extensions and not any(part.startswith('.') for part in p.parts)
     ]
     print(f"Found {len(image_paths)} total images")
     
@@ -252,7 +252,8 @@ def get_save_name(input_path: Path, model_name: str, debug: bool = False) -> str
 def create_image_mapping(
     image_paths: List[Path],
     labels_df: Optional[pd.DataFrame] = None,
-    dataset_name: str = 'imagenet',
+    embedding_name: str = 'imagenet_clip',
+    domain: str = 'imagenet',
     debug: bool = False,
 ) -> pd.DataFrame:
     """
@@ -260,42 +261,85 @@ def create_image_mapping(
     
     Args:
         image_paths: List of image file paths
-        labels_df: DataFrame containing ImageNet labels with columns [class_index, class_name]
-        dataset_name: Dataset name for identification
+        labels_df: DataFrame containing labels with columns [file, age, gender, race, service_test] for FairFace
+        embedding_name: name for identification
+        domain: Domain of the dataset ('imagenet' or 'face')
     
     Returns:
-        pd.DataFrame with columns: [path, index, class_id, class_name, class_index]
+        pd.DataFrame with columns: [path, index, class_id, class_name, class_index] for ImageNet
+                                   or [path, index, gender, race, age] for face datasets
     """
     # Create basic mapping
     mapping = pd.DataFrame({
-        'dataset_name': dataset_name,
+        'embedding_name': embedding_name,
         'path': [str(p) for p in image_paths],
         'index': range(len(image_paths)),
     })
     
-    # Extract label from path if labels_df is provided
-    if labels_df is not None:
-        # Extract class ID from path (parent folder name)
-        mapping['class_id'] = mapping['path'].apply(lambda x: Path(x).parent.name)
+    dataset_name = embedding_name.split('_')[0]
+    if debug:
+        print(f"Debug: dataset_name = {dataset_name}")
+    if domain == 'face':
+        if dataset_name.lower() == 'fairface':
+            # Extract labels for FairFace dataset
+            if labels_df is not None:
+                labels_df['relative_path'] = labels_df['file'].apply(lambda x: str(Path(x)))
+                mapping['relative_path'] = mapping['path'].apply(lambda x: '/'.join(Path(x).parts[-2:]))
+                mapping = mapping.merge(labels_df, left_on='relative_path', right_on='relative_path', how='left')
+                mapping = mapping[['path', 'index', 'gender', 'race', 'age']]
+            else:
+                raise ValueError("Labels CSV is required for FairFace dataset")
         
-        # Map class IDs to names and indices using labels_df
-        # The index in labels_df is 0,1,2... so we need to use the first column
-        class_name_dict = dict(zip(labels_df.iloc[:, 0], labels_df['class_name']))
-        class_index_dict = dict(zip(labels_df.iloc[:, 0], labels_df['class_index']))
-        
-        mapping['class_name'] = mapping['class_id'].map(class_name_dict)
-        mapping['class_index'] = mapping['class_id'].map(class_index_dict)
-        
-        if debug:
-            # Print diagnostics in debug mode
-            print("\nDebug: First few rows of labels_df:")
-            print(labels_df.head())
-            print("\nDebug: Example mappings:")
-            print(f"First class ID in mapping: {mapping['class_id'].iloc[0]}")
-            print(f"Available class IDs in dictionary: {list(class_name_dict.keys())[:5]}")
+        elif dataset_name.lower() == 'utk-face':
+            # Extract labels for UTKFace dataset
+            # Assuming the file name format is [age]_[gender]_[race]_[date&time].jpg
+            def parse_utkface_filename(filename):
+                parts = filename.stem.split('_')
+                if len(parts) >= 4:
+                    return parts[1], parts[2], parts[0]  # gender, race, age
+                return 'unknown', 'unknown', 'unknown'
+            
+            mapping[['gender', 'race', 'age']] = mapping['path'].apply(
+                lambda x: pd.Series(parse_utkface_filename(Path(x)))
+            )
     
-    return mapping
+    else: # Imagenet dataset
+        # Extract label from path if labels_df is provided
+        if labels_df is not None:
+            # Map class IDs to names and indices using labels_df
+            # The index in labels_df is 0,1,2... so we need to use the first column
+            class_name_dict = dict(zip(labels_df.iloc[:, 0], labels_df['class_name']))
+            class_index_dict = dict(zip(labels_df.iloc[:, 0], labels_df['class_index']))
+            class_id_dict = dict(zip(labels_df['class_index'], labels_df.iloc[:, 0]))
 
+            # class ID is the parent folder name except for Imagenet-val-set where it is the last part of the filename
+            def path_func(x): 
+                p = Path(x)
+                if 'val-set' in str(p.parent):
+                    return p.stem.split('_')[-1]
+                elif 'imagenetv2' in str(p.parent):
+                    return class_id_dict[int(p.parent.stem)]
+                else:
+                    return p.parent.stem 
+
+            # Extract class ID from path (parent folder name)
+            mapping['class_id'] = mapping['path'].apply(path_func)
+            mapping['class_name'] = mapping['class_id'].map(class_name_dict)
+            mapping['class_index'] = mapping['class_id'].map(class_index_dict).astype(int)
+        else:
+            raise ValueError('Missing imagenet mapping csv')
+            
+    if debug:
+        # Print diagnostics in debug mode
+        print("\nDebug: First few rows of labels_df:")
+        if labels_df is not None:
+            print(labels_df.head())
+        print("\nDebug: mapping:")
+        print(mapping.head())
+        print(mapping['class_id'])
+    
+
+    return mapping
 
 def save_embeddings(
     embeddings: np.ndarray,
@@ -303,6 +347,7 @@ def save_embeddings(
     output_path: Path,
     labels_df: Optional[pd.DataFrame] = None,
     debug: bool = False,
+    domain: str = 'imagenet',
 ):
     """
     Save embeddings, paths, and labels to files.
@@ -313,25 +358,29 @@ def save_embeddings(
         output_path: Path to save embeddings
         labels_df: DataFrame containing ImageNet labels (optional)
         debug: Whether to print debug information
+        domain: Domain of the dataset ('imagenet' or 'face')
     """
     # Create output directory if needed
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Save embeddings tensor
-    torch.save({
-        'embeddings': torch.from_numpy(embeddings),
-        'paths': [str(p) for p in paths]
-    }, output_path)
+    if not debug:
+        # Save embeddings tensor
+        torch.save({
+            'embeddings': torch.from_numpy(embeddings),
+            'paths': [str(p) for p in paths]
+        }, output_path)
     
     # Create and save mapping CSV
     mapping_df = create_image_mapping(
         paths, 
         labels_df, 
-        dataset_name=output_path.stem,
+        embedding_name=output_path.stem,
         debug=debug,
+        domain=domain,
     )
-    csv_path = output_path.with_suffix('.csv')
-    mapping_df.to_csv(csv_path, index=False)
+    if not debug:
+        csv_path = output_path.with_suffix('.csv')
+        mapping_df.to_csv(csv_path, index=False)
     
     return mapping_df
 
@@ -352,7 +401,7 @@ def main():
                        help='Output directory for saved embeddings')
     parser.add_argument('--labels-csv', type=str,
                        default=None,
-                       help='Path to CSV file containing ImageNet labels')
+                       help='Path to CSV file containing labels')
     parser.add_argument('--model', type=str,
                        choices=['efficientnet', 'clip', 'dino'],
                        default='clip',
@@ -367,6 +416,10 @@ def main():
                        help='Run in debug mode (process only 4 images)')
     parser.add_argument('--shuffle', action='store_true',
                        help='Shuffle the dataset (default: False)')
+    parser.add_argument('--domain', type=str,
+                       choices=['imagenet', 'face'],
+                       default='imagenet',
+                       help='Domain of the dataset (imagenet or face)')
     
     args = parser.parse_args()
     
@@ -409,7 +462,6 @@ def main():
         for path in image_paths:
             print(f"  {path}")
     
-
     print('CUDA available: ', torch.cuda.is_available())
     
     # Generate embeddings
@@ -429,7 +481,6 @@ def main():
     print(f"Embeddings shape: {embeddings.shape}")
    
     # Save embeddings if not in debug mode
-    # if not args.debug:
     print(f"Saving embeddings to {output_path}")
     mapping_df = save_embeddings(
         embeddings,
@@ -437,13 +488,12 @@ def main():
         output_path,
         labels_df=labels_df,
         debug=args.debug,
+        domain=args.domain,
     )
     print(f"Created mapping file: {output_path.with_suffix('.csv')}")
     if args.debug:
         print("\nFirst few rows of mapping:")
         print(mapping_df.head())
-    # else:
-    #     print("Debug mode: Skipping save")
 
 if __name__ == "__main__":
     main()
